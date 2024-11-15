@@ -55,6 +55,14 @@ impl PayoutAttemptInterface for MockDb {
         Err(StorageError::MockDbError)?
     }
 
+    async fn find_all_payout_attempts_by_payout_id(
+        &self,
+        _payout_id: &str,
+    ) -> CustomResult<Vec<PayoutAttempt>, StorageError> {
+        // TODO: Implement function for `MockDb`
+        Err(StorageError::MockDbError)?
+    }
+
     async fn get_filters_for_payouts(
         &self,
         _payouts: &[Payouts],

@@ -8,7 +8,10 @@ use std::{collections::HashSet, vec::IntoIter};
 
 #[cfg(feature = "olap")]
 use api_models::payments as payment_enums;
-use api_models::{self, enums as api_enums, payouts::PayoutLinkResponse};
+use api_models::{
+    self, enums as api_enums,
+    payouts::{PayoutAttemptResponse, PayoutLinkResponse},
+};
 #[cfg(feature = "payout_retry")]
 use common_enums::PayoutRetryType;
 use common_utils::{
@@ -2358,6 +2361,19 @@ pub async fn response_handler(
     let payout_method_data =
         additional_payout_method_data.map(payouts::PayoutMethodDataResponse::from);
 
+    let payout_attempts = state
+        .store
+        .find_all_payout_attempts_by_payout_id(&payouts.payout_id)
+        .await
+        .map(|payout_attempts| {
+            payout_attempts
+                .iter()
+                .map(ForeignFrom::foreign_from)
+                .collect()
+        })
+        .change_context(errors::ApiErrorResponse::InternalServerError)
+        .attach_printable("Error fetching associated payout_attempts from db")?;
+
     let response = api::PayoutCreateResponse {
         payout_id: payouts.payout_id.to_owned(),
         merchant_id: merchant_account.get_id().to_owned(),
@@ -2394,7 +2410,7 @@ pub async fn response_handler(
         created: Some(payouts.created_at),
         connector_transaction_id: payout_attempt.connector_payout_id,
         priority: payouts.priority,
-        attempts: None,
+        attempts: Some(payout_attempts),
         unified_code: payout_attempt.unified_code,
         unified_message: translated_unified_message,
         payout_link: payout_link

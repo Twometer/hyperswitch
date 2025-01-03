@@ -48,6 +48,12 @@ pub trait PayoutAttemptInterface {
         _merchant_id: &id_type::MerchantId,
         _storage_scheme: MerchantStorageScheme,
     ) -> error_stack::Result<PayoutListFilters, errors::StorageError>;
+
+    async fn find_all_payout_attempts_by_merchant_id_payout_id(
+        &self,
+        _merchant_id: &id_type::MerchantId,
+        _payout_id: &str,
+    ) -> error_stack::Result<Vec<PayoutAttempt>, errors::StorageError>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

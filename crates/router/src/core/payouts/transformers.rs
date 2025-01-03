@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use api_models::payouts::PayoutAttemptResponse;
 use common_utils::link_utils::EnabledPaymentMethod;
 
 #[cfg(all(
@@ -45,6 +46,7 @@ impl
     ForeignFrom<(
         storage::Payouts,
         storage::PayoutAttempt,
+        Vec<storage::PayoutAttempt>,
         Option<domain::Customer>,
         Option<payments::Address>,
     )> for api::PayoutCreateResponse
@@ -53,26 +55,17 @@ impl
         item: (
             storage::Payouts,
             storage::PayoutAttempt,
+            Vec<storage::PayoutAttempt>,
             Option<domain::Customer>,
             Option<payments::Address>,
         ),
     ) -> Self {
-        let (payout, payout_attempt, customer, address) = item;
-        let attempt = api::PayoutAttemptResponse {
-            attempt_id: payout_attempt.payout_attempt_id,
-            status: payout_attempt.status,
-            amount: payout.amount,
-            currency: Some(payout.destination_currency),
-            connector: payout_attempt.connector.clone(),
-            error_code: payout_attempt.error_code.clone(),
-            error_message: payout_attempt.error_message.clone(),
-            payment_method: payout.payout_type,
-            payout_method_type: None,
-            connector_transaction_id: payout_attempt.connector_payout_id,
-            cancellation_reason: None,
-            unified_code: None,
-            unified_message: None,
-        };
+        let (payout, payout_attempt, all_payout_attempts, customer, address) = item;
+        let attempt: PayoutAttemptResponse = ForeignFrom::foreign_from((payout.clone(), payout_attempt.clone()));
+        let all_attempts = all_payout_attempts
+            .iter()
+            .map(|attempt| ForeignFrom::foreign_from((payout.clone(), attempt.to_owned())))
+            .collect();
         Self {
             payout_id: payout.payout_id,
             merchant_id: payout.merchant_id,
@@ -104,7 +97,7 @@ impl
             payout_link: None,
             unified_code: attempt.unified_code.clone(),
             unified_message: attempt.unified_message.clone(),
-            attempts: Some(vec![attempt]),
+            attempts: Some(all_attempts),
             email: customer
                 .as_ref()
                 .and_then(|customer| customer.email.clone()),
@@ -115,6 +108,27 @@ impl
             phone_country_code: customer
                 .as_ref()
                 .and_then(|customer| customer.phone_country_code.clone()),
+        }
+    }
+}
+
+impl ForeignFrom<(storage::Payouts, storage::PayoutAttempt)> for PayoutAttemptResponse {
+    fn foreign_from(item: (storage::Payouts, storage::PayoutAttempt)) -> Self {
+        let (payouts, payout_attempt) = item;
+        Self {
+            attempt_id: payout_attempt.payout_attempt_id,
+            status: payout_attempt.status,
+            amount: payouts.amount,
+            currency: Some(payouts.destination_currency),
+            connector: payout_attempt.connector.clone(),
+            error_code: payout_attempt.error_code.clone(),
+            error_message: payout_attempt.error_message.clone(),
+            payment_method: payouts.payout_type,
+            payout_method_type: None,
+            connector_transaction_id: payout_attempt.connector_payout_id,
+            cancellation_reason: None,
+            unified_code: None,
+            unified_message: None,
         }
     }
 }

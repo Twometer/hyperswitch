@@ -8,7 +8,10 @@ use std::{collections::HashSet, vec::IntoIter};
 
 #[cfg(feature = "olap")]
 use api_models::payments as payment_enums;
-use api_models::{self, enums as api_enums, payouts::PayoutLinkResponse};
+use api_models::{
+    self, enums as api_enums,
+    payouts::{PayoutAttemptResponse, PayoutLinkResponse},
+};
 #[cfg(feature = "payout_retry")]
 use common_enums::PayoutRetryType;
 use common_utils::{
@@ -808,15 +811,11 @@ pub async fn payouts_list_core(
 
     for payout in payouts {
         match db
-            .find_payout_attempt_by_merchant_id_payout_attempt_id(
-                merchant_id,
-                &utils::get_payout_attempt_id(payout.payout_id.clone(), payout.attempt_count),
-                storage_enums::MerchantStorageScheme::PostgresOnly,
-            )
+            .find_all_payout_attempts_by_merchant_id_payout_id(merchant_id, &payout.payout_id)
             .await
             .change_context(errors::ApiErrorResponse::InternalServerError)
         {
-            Ok(payout_attempt) => {
+            Ok(payout_attempts) => {
                 let domain_customer = match payout.customer_id.clone() {
                     #[cfg(all(any(feature = "v1", feature = "v2"), not(feature = "customer_v2")))]
                     Some(customer_id) => db
@@ -874,14 +873,15 @@ pub async fn payouts_list_core(
 
                 pi_pa_tuple_vec.push((
                     payout.to_owned(),
-                    payout_attempt.to_owned(),
+                    payout_attempts.last().unwrap().to_owned(),
+                    payout_attempts.to_owned(),
                     domain_customer,
                     payment_addr,
                 ));
             }
             Err(err) => {
                 let err_msg = format!(
-                    "failed while fetching payout_attempt for payout_id - {:?}",
+                    "failed while fetching payout_attempts for payout_id - {:?}",
                     payout.payout_id
                 );
                 logger::warn!(?err, err_msg);
@@ -967,7 +967,8 @@ pub async fn payouts_filtered_list_core(
                 })
                 .await;
 
-            Some((p, pa, customer, payout_addr))
+            // TODO: Returning all the payout attempts here requires more rewiring of the filtered queries
+            Some((p, pa.clone(), vec![pa], customer, payout_addr))
         }))
         .await
         .into_iter()
@@ -2370,7 +2371,7 @@ pub async fn response_handler(
     let payout_link = payout_data.payout_link.to_owned();
     let billing_address = payout_data.billing_address.to_owned();
     let customer_details = payout_data.customer_details.to_owned();
-    let customer_id = payouts.customer_id;
+    let customer_id = payouts.customer_id.to_owned();
     let billing = billing_address
         .as_ref()
         .map(hyperswitch_domain_models::address::Address::from)
@@ -2388,6 +2389,24 @@ pub async fn response_handler(
 
     let payout_method_data =
         additional_payout_method_data.map(payouts::PayoutMethodDataResponse::from);
+
+    let payout_attempts = state
+        .store
+        .find_all_payout_attempts_by_merchant_id_payout_id(
+            merchant_account.get_id(),
+            &payouts.payout_id,
+        )
+        .await
+        .map(|payout_attempts| {
+            payout_attempts
+                .iter()
+                .map(|payout_attempt| {
+                    ForeignFrom::foreign_from((payouts.clone(), payout_attempt.to_owned()))
+                })
+                .collect()
+        })
+        .change_context(errors::ApiErrorResponse::InternalServerError)
+        .attach_printable("Error fetching associated payout_attempts from db")?;
 
     let response = api::PayoutCreateResponse {
         payout_id: payouts.payout_id.to_owned(),
@@ -2425,7 +2444,7 @@ pub async fn response_handler(
         created: Some(payouts.created_at),
         connector_transaction_id: payout_attempt.connector_payout_id,
         priority: payouts.priority,
-        attempts: None,
+        attempts: Some(payout_attempts),
         unified_code: payout_attempt.unified_code,
         unified_message: translated_unified_message,
         payout_link: payout_link

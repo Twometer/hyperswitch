@@ -369,6 +369,17 @@ impl<T: DatabaseStore> PayoutAttemptInterface for KVRouterStore<T> {
     }
 
     #[instrument(skip_all)]
+    async fn find_all_payout_attempts_by_merchant_id_payout_id(
+        &self,
+        merchant_id: &common_utils::id_type::MerchantId,
+        payout_id: &str,
+    ) -> error_stack::Result<Vec<PayoutAttempt>, errors::StorageError> {
+        self.router_store
+            .find_all_payout_attempts_by_merchant_id_payout_id(merchant_id, payout_id)
+            .await
+    }
+
+    #[instrument(skip_all)]
     async fn get_filters_for_payouts(
         &self,
         payouts: &[Payouts],
@@ -461,6 +472,27 @@ impl<T: DatabaseStore> PayoutAttemptInterface for crate::RouterStore<T> {
             let new_err = diesel_error_to_data_error(*er.current_context());
             er.change_context(new_err)
         })
+    }
+
+    #[instrument(skip_all)]
+    async fn find_all_payout_attempts_by_merchant_id_payout_id(
+        &self,
+        merchant_id: &common_utils::id_type::MerchantId,
+        payout_id: &str,
+    ) -> error_stack::Result<Vec<PayoutAttempt>, errors::StorageError> {
+        let conn = pg_connection_read(self).await?;
+        DieselPayoutAttempt::find_all_by_merchant_id_payout_id(&conn, merchant_id, payout_id)
+            .await
+            .map(|attempts| {
+                attempts
+                    .into_iter()
+                    .map(PayoutAttempt::from_storage_model)
+                    .collect()
+            })
+            .map_err(|er| {
+                let new_err = diesel_error_to_data_error(*er.current_context());
+                er.change_context(new_err)
+            })
     }
 
     #[instrument(skip_all)]

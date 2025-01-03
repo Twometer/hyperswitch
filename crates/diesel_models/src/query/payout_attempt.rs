@@ -67,6 +67,23 @@ impl PayoutAttempt {
         .await
     }
 
+    pub async fn find_all_by_merchant_id_payout_id(
+        conn: &PgPooledConn,
+        merchant_id: &common_utils::id_type::MerchantId,
+        payout_id: &str,
+    ) -> StorageResult<Vec<Self>> {
+        generics::generic_filter::<<Self as HasTable>::Table, _, _, _>(
+            conn,
+            dsl::merchant_id
+                .eq(merchant_id.to_owned())
+                .and(dsl::payout_id.eq(payout_id.to_owned())),
+            None,
+            None,
+            Some(dsl::created_at.asc()),
+        )
+        .await
+    }
+
     pub async fn find_by_merchant_id_payout_attempt_id(
         conn: &PgPooledConn,
         merchant_id: &common_utils::id_type::MerchantId,
